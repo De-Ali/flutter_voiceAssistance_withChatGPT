@@ -1,19 +1,13 @@
+import 'package:avatar_glow/avatar_glow.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
+import '../apis/chat_gpt_api.dart';
 import '../models/message_model.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
 
   final String title;
 
@@ -22,9 +16,68 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  bool isListening = false;
+  SpeechToText speechToText = SpeechToText();
+  String? text = "";
+  final List<MessageModel> message = [];
+  var scrollController = ScrollController();
+
+  scrollMethod() {
+    scrollController.animateTo(
+      scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: AvatarGlow(
+        endRadius: 75.0,
+        animate: isListening,
+        duration: const Duration(milliseconds: 2000),
+        glowColor: Colors.greenAccent.shade200,
+        repeat: true,
+        repeatPauseDuration: const Duration(milliseconds: 100),
+        showTwoGlows: true,
+        child: GestureDetector(
+          onTapDown: (details) async {
+            if (!isListening) {
+              var available = await speechToText.initialize();
+              if (available) {
+                setState(() {
+                  isListening = true;
+                  speechToText.listen(onResult: (result) {
+                    text = result.recognizedWords;
+                  });
+                });
+              }
+            }
+          },
+          onTapUp: (details) async {
+            setState(() {
+              isListening = false;
+            });
+            speechToText.stop();
+            message.add(MessageModel(text: text, type: MessageType.user));
+            var msg = await ChatGptApi.sendMessage(text!);
+
+            setState(() {
+              message.add(MessageModel(text: msg, type: MessageType.bot));
+            });
+          },
+          child: CircleAvatar(
+            backgroundColor: Colors.greenAccent.shade200,
+            radius: 35,
+            child: Icon(
+              isListening ? Icons.mic : Icons.mic_none,
+              color: Colors.black,
+            ),
+          ),
+        ),
+      ),
       backgroundColor: Colors.black26,
       appBar: AppBar(
         elevation: 0.0,
@@ -47,11 +100,12 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(
               height: 20,
             ),
-            const Center(
-                child: Text(
-              "Hold the button and start Speaking",
-              style: TextStyle(color: Colors.white, fontSize: 12),
-            )),
+            Center(
+              child: Text(
+                text!,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
             const SizedBox(
               height: 20,
             ),
@@ -66,12 +120,15 @@ class _MyHomePageState extends State<MyHomePage> {
                   color: Colors.white,
                 ),
                 child: ListView.builder(
+                  physics:  const BouncingScrollPhysics(),
+                  controller: scrollController,
                     shrinkWrap: true,
-                    itemCount: 4,
+                    itemCount: message.length,
                     itemBuilder: (BuildContext context, int index) {
+                    var chat = message[index];
                       return chatBubble(
-                        chatText: "Hey How are you doing ?",
-                        type: MessageType.user,
+                        chatText: chat.text,
+                        type: chat.type,
                       );
                     }),
               ),
@@ -79,19 +136,11 @@ class _MyHomePageState extends State<MyHomePage> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        backgroundColor: Colors.greenAccent.shade100,
-        tooltip: 'Increment',
-        child: const Icon(
-          Icons.keyboard_voice_outlined,
-          color: Colors.black,
-        ),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 
-  Widget chatBubble({required chatText, required MessageType type}) {
+  Widget chatBubble({required chatText, required MessageType? type}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
